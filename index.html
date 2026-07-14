@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instalar · Copiloto SELS</title>
+<style>
+  :root {
+    --navy: #1a365d;
+    --navy-dark: #0f2340;
+    --gold: #d9a441;
+    --gold-light: #f7e9cf;
+    --bg: #FAF7EE;
+    --ink: #2d2d2d;
+    --muted: #6b6b6b;
+    --ok: #2f7d4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .topo {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+    color: #fff;
+    padding: 56px 24px 64px;
+    text-align: center;
+  }
+  .topo .selo {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--gold-light);
+    border: 1px solid rgba(247,233,207,.4);
+    border-radius: 999px;
+    padding: 5px 14px;
+    margin-bottom: 18px;
+  }
+  .topo h1 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: clamp(28px, 5vw, 42px);
+    margin: 0 0 10px;
+    letter-spacing: .3px;
+  }
+  .topo p {
+    max-width: 560px;
+    margin: 0 auto;
+    color: #cfd9e8;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .conteudo {
+    max-width: 720px;
+    margin: -34px auto 0;
+    padding: 0 20px 60px;
+  }
+
+  .passo {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(15,35,64,.10);
+    padding: 30px 28px;
+    margin-bottom: 22px;
+    border: 1px solid #eee2c8;
+  }
+  .passo .numero {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--navy);
+    color: #fff;
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .passo h2 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 20px;
+    color: var(--navy);
+    margin: 0 0 8px;
+  }
+  .passo p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0 0 18px;
+  }
+  .botoes-navegador {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--navy);
+    color: #fff;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 12px 20px;
+    border-radius: 8px;
+    transition: background .15s ease;
+  }
+  .btn:hover { background: var(--navy-dark); }
+  .btn.secundario {
+    background: #fff;
+    color: var(--navy);
+    border: 1.5px solid var(--navy);
+  }
+  .btn.secundario:hover { background: var(--gold-light); }
+  .btn.grande {
+    width: 100%;
+    justify-content: center;
+    padding: 16px 20px;
+    font-size: 15px;
+    background: var(--ok);
+  }
+  .btn.grande:hover { background: #26663f; }
+
+  .aviso {
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: var(--muted);
+    background: var(--gold-light);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+
+  .rodape {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    padding-top: 10px;
+  }
+  .rodape a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+  <div class="topo">
+    <span class="selo">SELS UCOB</span>
+    <h1>Copiloto SELS</h1>
+    <p>Instale a ferramenta que gera o demonstrativo de saldo dos colportores em 2 passos rápidos — sem precisar copiar ou colar nenhum código.</p>
+  </div>
+
+  <div class="conteudo">
+
+    <div class="passo">
+      <div class="numero">1</div>
+      <h2>Instalar o Tampermonkey</h2>
+      <p>É a extensão de navegador que permite rodar o Copiloto SELS. Só precisa instalar uma vez.</p>
+      <div class="botoes-navegador">
+        <a class="btn" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Instalar no Chrome</a>
+        <a class="btn secundario" href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener">Instalar no Edge</a>
+      </div>
+    </div>
+
+    <div class="passo">
+      <div class="numero">2</div>
+      <h2>Instalar o Copiloto SELS</h2>
+      <p>Com o Tampermonkey já instalado, clique no botão abaixo — ele abre automaticamente a tela de instalação do script, sem precisar colar nada.</p>
+      <a class="btn grande" href="https://raw.githubusercontent.com/maycon-douglas157420/SELS_UCOB/main/assistente_sels.user.js" target="_blank" rel="noopener">📊 Instalar o Copiloto SELS</a>
+      <div class="aviso">
+        Se a página só mostrar o código em vez de abrir a tela de instalação, é sinal de que o Tampermonkey do Passo 1 ainda não terminou de instalar — feche a aba, confirme a instalação da extensão e clique aqui de novo.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="rodape">
+    Depois de instalado, o painel do Copiloto aparece automaticamente ao abrir o <a href="https://apms.sdasystems.org" target="_blank" rel="noopener">apms.sdasystems.org</a>.
+  </div>
+
+</body>
+</html>
