@@ -745,13 +745,18 @@
     // ---------------------------------------------------------------
     // PASSO 4: GERAR NOVO DEMONSTRATIVO
     //
-    // Fórmula do Saldo Final — replicando com fidelidade o
-    // demonstrativo_saldo_2_0.html, mas com os sinais REAIS usados
-    // pelo usuário (confirmados numericamente com um caso real):
-    //   -SaldoAPMS + MaterialConsignado + DízimoConsignado
+    // Fórmula do Saldo Final (corrigida e confirmada com caso real):
+    //   SaldoAPMS (sinal real, positivo ou negativo)
+    //   +MaterialConsignado + DízimoConsignado
     //   +NgPendenteNormal + DízimoNgNormal
     //   +NgPendenteRegistrada + DízimoNgRegistrada
-    //   -TotalFrete (somado SOMENTE das NGs, não do Razão — evita duplicar)
+    //   +TotalFrete (somado SOMENTE das NGs, não do Razão — evita duplicar)
+    //
+    // O saldo do razão entra com o sinal REAL que veio do APMS (não é
+    // forçado a negativo) — se algum dia vier credor (positivo), ele soma
+    // normalmente. Todos os demais itens (consignado, dízimos, NGs, frete)
+    // são somados como valores positivos, pois representam responsabilidade/
+    // crédito do colportor, independente do sinal do razão.
     //
     // Débitos/Créditos do Razão NÃO entram no resumo nem no cálculo —
     // por pedido explícito do usuário, para igualar ao 2.0.
@@ -781,14 +786,14 @@
         const totalFreteConsolidado = freteNgNormal + freteNgRegistrada;
 
         const lucroReal =
-            -Math.abs(saldoRazao)
+            saldoRazao
             + Math.abs(materialConsignado)
             + Math.abs(dizimoConsignado)
             + Math.abs(ngPendenteNormal)
             + Math.abs(dizimoNgNormal)
             + Math.abs(ngPendenteRegistrada)
             + Math.abs(dizimoNgRegistrada)
-            - Math.abs(totalFreteConsolidado);
+            + Math.abs(totalFreteConsolidado);
 
         return {
             nome: razao.nome || GM_getValue("nomeColportor", ""),
