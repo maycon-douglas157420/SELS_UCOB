@@ -1,45 +1,17 @@
-class State {
+/**
+ * Estado global da aplicação
+ */
 
-    constructor() {
+const State = {
 
-        this.reset();
+    apmsLoaded: false,
 
-    }
+    currentCampaign: null,
 
-    reset() {
+    currentColportor: null,
 
-        this.data = {
+    currentWorkflow: null
 
-            campaign: null,
+};
 
-            colportor: null,
-
-            razao: {},
-
-            consignado: {},
-
-            ng: {},
-
-            demonstrativo: {},
-
-            status: "ready"
-
-        };
-
-    }
-
-    get(key) {
-
-        return this.data[key];
-
-    }
-
-    set(key, value) {
-
-        this.data[key] = value;
-
-    }
-
-}
-
-export default new State();
+export default State;

@@ -1,21 +1,38 @@
-export default class Storage {
+import Config from "./Config.js";
+
+class Storage {
 
     static save(key, value) {
 
-        GM_setValue(key, value);
+        localStorage.setItem(
+            `${Config.STORAGE_PREFIX}.${key}`,
+            JSON.stringify(value)
+        );
 
     }
 
-    static load(key, defaultValue = null) {
+    static load(key) {
 
-        return GM_getValue(key, defaultValue);
+        const value = localStorage.getItem(
+            `${Config.STORAGE_PREFIX}.${key}`
+        );
+
+        if (!value) {
+            return null;
+        }
+
+        return JSON.parse(value);
 
     }
 
     static remove(key) {
 
-        GM_deleteValue(key);
+        localStorage.removeItem(
+            `${Config.STORAGE_PREFIX}.${key}`
+        );
 
     }
 
 }
+
+export default Storage;

@@ -1,26 +1,63 @@
-export default class Logger {
+/**
+ * ============================================================
+ * SELS Assistant V6
+ * Logger
+ * ============================================================
+ */
 
-    static info(message, data = null) {
+class Logger {
+
+    static info(message, ...args) {
         console.log(
-            `%c[SELS Assistant]`,
-            "color:#2E86DE;font-weight:bold;",
-            message,
-            data ?? ""
+            `%c[SELS]%c ${message}`,
+            "color:#1976d2;font-weight:bold;",
+            "color:inherit;",
+            ...args
         );
     }
 
-    static warn(message, data = null) {
+    static success(message, ...args) {
+        console.log(
+            `%c[SELS]%c ${message}`,
+            "color:#2e7d32;font-weight:bold;",
+            "color:inherit;",
+            ...args
+        );
+    }
+
+    static warn(message, ...args) {
         console.warn(
-            `[SELS Assistant] ${message}`,
-            data ?? ""
+            `%c[SELS]%c ${message}`,
+            "color:#f57c00;font-weight:bold;",
+            "color:inherit;",
+            ...args
         );
     }
 
-    static error(message, data = null) {
+    static error(message, ...args) {
         console.error(
-            `[SELS Assistant] ${message}`,
-            data ?? ""
+            `%c[SELS]%c ${message}`,
+            "color:#c62828;font-weight:bold;",
+            "color:inherit;",
+            ...args
         );
+    }
+
+    static debug(message, ...args) {
+
+        if (!window.SELS_DEBUG) {
+            return;
+        }
+
+        console.log(
+            `%c[DEBUG]%c ${message}`,
+            "color:#7b1fa2;font-weight:bold;",
+            "color:inherit;",
+            ...args
+        );
+
     }
 
 }
+
+export default Logger;

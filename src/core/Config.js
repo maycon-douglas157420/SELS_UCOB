@@ -1,11 +1,19 @@
-export default {
+e/**
+ * ============================================================
+ * Configurações Globais
+ * ============================================================
+ */
+
+const Config = {
+
+    NAME: "SELS Assistant",
+
+    VERSION: "6.0.0",
 
     DEBUG: true,
 
-    AUTO_SAVE: true,
-
-    AUTO_UPDATE: false,
-
-    THEME: "light"
+    STORAGE_PREFIX: "sels_assistant"
 
 };
+
+export default Config;
