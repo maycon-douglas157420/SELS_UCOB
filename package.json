@@ -1,1 +1,12 @@
-
+{
+  "name": "sels-ucob",
+  "version": "1.0.0",
+  "description": "SELS Assistant",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.1.200"
+  }
+}
