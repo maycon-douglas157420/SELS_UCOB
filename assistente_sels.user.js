@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         SELS ASSISTANT 6.1
+// @name         SELS ASSISTANT 6.2
 // @namespace    http://tampermonkey.net/
-// @version      6.1
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe.
+// @version      6.2
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright.
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
@@ -10,6 +10,35 @@
 // @grant        GM_deleteValue
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js
 // ==/UserScript==
+
+// ================================================================
+// MODO ROBO (6.2) — resumo de como funciona, para quem for manter:
+//
+// Tudo que existia na 6.1 continua igual para uso humano. O modo robo
+// e ADITIVO e so liga quando a URL traz um parametro especial:
+//
+//   ?selsRobo=1              -> ao detectar um relatorio, captura sozinho
+//                              (sem esperar clique no botao "Capturar")
+//   ?selsRoboGerar=<alvo>    -> depois de capturar os 3, analisa, acha o
+//                              colportor <alvo> (nome ou CPF que o robo
+//                              casa por fora) e gera o Demonstrativo dele
+//                              ja disparando o download do PDF
+//
+// Sinalizacao para o Playwright saber quando terminou: o script escreve
+// o estado no atributo  document.body[data-sels-robo]  e tambem em
+// document.title. O robo so precisa esperar esses valores mudarem —
+// nao precisa chamar funcao nenhuma por dentro do script (evita o
+// problema de mundos isolados entre Tampermonkey e a pagina).
+//
+// Valores possiveis de data-sels-robo:
+//   pronto                       -> script carregou, aguardando
+//   capturando:<tipo>            -> lendo o PDF daquele relatorio
+//   captura-ok:<tipo>            -> capturou com sucesso
+//   captura-erro:<tipo>          -> falhou (ver document.title)
+//   gerando:<alvo>               -> montando o demonstrativo do alvo
+//   gerado:<alvo>                -> demonstrativo aberto, download disparado
+//   gerar-erro:<alvo>            -> alvo nao encontrado ou erro
+// ================================================================
 
 (function () {
     'use strict';
@@ -341,6 +370,38 @@
     };
 
     // ===============================================================
+    // MODO ROBO — leitura dos parametros e sinalizacao de estado
+    // ===============================================================
+    const PARAMS = new URLSearchParams(location.search);
+    const MODO_ROBO = PARAMS.get('selsRobo') === '1' || PARAMS.has('selsRoboGerar');
+    const ALVO_ROBO = PARAMS.get('selsRoboGerar'); // nome OU cpf do colportor, ou 'equipe'
+
+    // Escreve o estado onde o Playwright consegue ler sem entrar no
+    // sandbox do Tampermonkey: atributo no body + titulo da aba.
+    function sinalizarRobo(estado, detalhe) {
+        try {
+            document.body.setAttribute('data-sels-robo', estado);
+            document.title = '[SELS-ROBO] ' + estado + (detalhe ? ' :: ' + detalhe : '');
+        } catch (e) { /* body pode nao existir ainda; ignora */ }
+    }
+
+    // Casa o alvo do robo (nome livre ou CPF) com um item do resultado.
+    // O cruzamento oficial e por NOME; o CPF, quando vier, e so um atalho
+    // extra caso o nome no APMS difira. Retorna o item ou null.
+    function acharAlvo(resultado, alvo) {
+        if (!alvo) return null;
+        const a = normalizar(alvo);
+        // 1) match exato por nome normalizado
+        let hit = resultado.find(r => normalizar(r.nome) === a);
+        if (hit) return hit;
+        // 2) match por "contem" (nome parcial), util quando o robo manda
+        //    so parte do nome; so aceita se for unico para evitar ambiguidade
+        const candidatos = resultado.filter(r => normalizar(r.nome).includes(a));
+        if (candidatos.length === 1) return candidatos[0];
+        return null;
+    }
+
+    // ===============================================================
     // PAINEL FLUTUANTE
     // ===============================================================
     const painel = document.createElement('div');
@@ -459,6 +520,8 @@
                 btn.disabled = false;
                 btn.textContent = 'Capturar: ' + ROTULOS[tipoDetectado];
                 deteccaoEmAndamento = false;
+                // MODO ROBO: captura sozinho, sem esperar clique.
+                if (MODO_ROBO) { roboAutoCapturar(tipoDetectado); }
                 return;
             }
         }
@@ -471,6 +534,25 @@
         const retry = document.getElementById('sels-retry');
         if (retry) retry.onclick = (ev) => { ev.preventDefault(); detectarPaginaAtual(); };
         deteccaoEmAndamento = false;
+    }
+
+    // Logica de captura isolada, usada tanto pelo botao (humano) quanto
+    // pelo modo robo. Retorna { tipo, resumo }. Lanca erro se falhar.
+    async function executarCaptura() {
+        const linhas = await extrairLinhasDoPDF();
+        const tipo = detectarRelatorio(linhas);
+        if (!tipo) throw new Error('Nao reconheci este relatorio. Abra Saldo dos Colportores, Vendas Faturadas por Colportor ou Nota de Garantia.');
+        GM_setValue('linhas_' + tipo, JSON.stringify(linhas));
+        let resumo = '';
+        if (tipo === 'saldo') {
+            resumo = Object.keys(parseSaldo(linhas)).length + ' colportores lidos.';
+        } else if (tipo === 'consignado') {
+            resumo = Object.keys(parseConsignado(linhas)).length + ' colportores com material consignado.';
+        } else {
+            const r = parseNgs(linhas);
+            resumo = Object.keys(r.ngs).length + ' colportores com NG pendente.';
+        }
+        return { tipo, resumo };
     }
 
     document.getElementById('sels-capturar').onclick = async () => {
@@ -737,7 +819,7 @@
     </div>`;
     }
 
-    function gerarDemonstrativos(lista) {
+    function gerarDemonstrativos(lista, autoBaixar) {
         const nomeArq = lista.length === 1
             ? 'demonstrativo-' + lista[0].nome.replace(/\s+/g, '_')
             : 'demonstrativos-equipe';
@@ -835,6 +917,17 @@
     }
     pdf.save('${nomeArq}.pdf');
   }
+  ${autoBaixar ? `
+  window.addEventListener('load', async () => {
+    try {
+      document.body.setAttribute('data-sels-pdf', 'gerando');
+      await baixarPDF();
+      document.body.setAttribute('data-sels-pdf', 'ok');
+    } catch (e) {
+      document.body.setAttribute('data-sels-pdf', 'erro:' + (e && e.message ? e.message : e));
+    }
+  });
+  ` : ''}
 <\/script>
 </body></html>`;
 
@@ -844,6 +937,55 @@
     }
 
     // ===============================================================
+    // ===============================================================
+    // MODO ROBO — rotinas de automacao (aditivas; nao afetam uso humano)
+    // ===============================================================
+
+    // Captura automatica do relatorio atual e sinaliza o estado para o
+    // Playwright ler. Nao mostra alert (que travaria a automacao).
+    async function roboAutoCapturar(tipo) {
+        sinalizarRobo('capturando', tipo);
+        try {
+            const r = await executarCaptura();
+            atualizarPainel();
+            sinalizarRobo('captura-ok', r.tipo);
+        } catch (e) {
+            console.error('[SELS-ROBO] captura falhou:', e);
+            sinalizarRobo('captura-erro', (e && e.message) ? e.message : String(e));
+        }
+    }
+
+    // Geracao automatica do demonstrativo de um alvo (nome ou cpf).
+    // Roda quando a URL traz ?selsRoboGerar=<alvo>. Exige que os 3
+    // relatorios (ou ao menos o Saldo) ja tenham sido capturados antes,
+    // o que o robo garante navegando pelos relatorios primeiro.
+    function roboGerarAlvo() {
+        sinalizarRobo('gerando', ALVO_ROBO);
+        try {
+            const L = lidos();
+            if (!L.saldo) {
+                sinalizarRobo('gerar-erro', 'Saldo ainda nao capturado');
+                return;
+            }
+            const dados = analisar();
+            if (String(ALVO_ROBO).toLowerCase() === 'equipe') {
+                gerarDemonstrativos(dados.resultado, true);
+                sinalizarRobo('gerado', 'equipe');
+                return;
+            }
+            const alvo = acharAlvo(dados.resultado, ALVO_ROBO);
+            if (!alvo) {
+                sinalizarRobo('gerar-erro', 'Colportor nao encontrado: ' + ALVO_ROBO);
+                return;
+            }
+            gerarDemonstrativos([alvo], true);
+            sinalizarRobo('gerado', alvo.nome);
+        } catch (e) {
+            console.error('[SELS-ROBO] geracao falhou:', e);
+            sinalizarRobo('gerar-erro', (e && e.message) ? e.message : String(e));
+        }
+    }
+
     document.getElementById('sels-refresh').onclick = () => detectarPaginaAtual();
 
     // Re-detecta automaticamente quando a URL muda (ex: você gera outro
@@ -857,5 +999,16 @@
     }, 1500);
 
     atualizarPainel();
-    detectarPaginaAtual();
+
+    // MODO ROBO: sinaliza que o script esta pronto e, se a URL pede geracao
+    // (?selsRoboGerar=<alvo>), dispara a geracao usando o que ja foi capturado
+    // nas navegacoes anteriores. Caso contrario, segue o fluxo normal de
+    // deteccao (que, em modo robo, tambem auto-captura o relatorio aberto).
+    sinalizarRobo('pronto', MODO_ROBO ? 'modo-robo' : 'humano');
+    if (ALVO_ROBO) {
+        // pequena espera para o GM storage estar acessivel e o DOM estavel
+        setTimeout(roboGerarAlvo, 300);
+    } else {
+        detectarPaginaAtual();
+    }
 })();
