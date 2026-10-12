@@ -1,18 +1,19 @@
 // ==UserScript==
-// @name         SELS ASSISTANT 6.2
+// @name         SELS ASSISTANT 6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.2
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright.
+// @version      6.4
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa.
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
 // ==/UserScript==
 
 // ================================================================
-// MODO ROBO (6.2) — resumo de como funciona, para quem for manter:
+// MODO ROBO (desde a 6.2) — resumo de como funciona, para quem for manter:
 //
 // Tudo que existia na 6.1 continua igual para uso humano. O modo robo
 // e ADITIVO e so liga quando a URL traz um parametro especial:
@@ -38,6 +39,12 @@
 //   gerando:<alvo>               -> montando o demonstrativo do alvo
 //   gerado:<alvo>                -> demonstrativo aberto, download disparado
 //   gerar-erro:<alvo>            -> alvo nao encontrado ou erro
+//
+// RECONSTRUCAO HISTORICA DO RAZAO (desde a 6.3) — segundo workflow no mesmo
+// painel (aba "Razao Historico"), independente do modo robo acima (ainda so
+// acionavel manualmente por enquanto). Ver a secao "MOTOR DE RECONSTRUCAO
+// HISTORICA DO RAZAO" mais abaixo e Contexto/SELS_Assistant_Reconstrucao_
+// Historica_Razao_Especificacao.md pra especificacao completa.
 // ================================================================
 
 (function () {
@@ -87,7 +94,10 @@
         "FOLDER PROATIVE",
         "Histórias do Nosso Amiguinho",
         "Jogo da Memória - Oque Vou Ser Quando Crescer",
+        "Jogo da Memória Personalizado - JG007 - Branco 12 Pares",
         "LIVRO ILUSTRADO N.A. - O QUE VOU SER QUANDO CRESCER",
+        "Livro Ilustrado Album N.A - O que Vou Ser Quando Crescer",
+        "Livro Ilustrado Nosso Amiguinho + Coleção de Figurinhas",
         "Tabuada Turma Nosso Amiguinho"
     ].map(normalizar);
 
@@ -366,8 +376,303 @@
     const ROTULOS = {
         saldo: 'Saldo dos Colportores',
         consignado: 'Vendas Faturadas (Consignado)',
-        ngs: 'Nota de Garantia (NGs)'
+        ngs: 'Nota de Garantia (NGs)',
+        razao: 'Razão Analítico'
     };
+
+    // ===============================================================
+    // MOTOR DE RECONSTRUÇÃO HISTÓRICA DO RAZÃO (workflow "razao")
+    // Especificação: Contexto/SELS_Assistant_Reconstrucao_Historica_Razao_Especificacao.md
+    //
+    // Captura via EXCEL (SheetJS), não PDF: descobrimos que a mesma URL do
+    // Razão que já abrimos como PDF (?isExcel=false) também serve em Excel
+    // só trocando isExcel=true — mesmo endpoint, mesmos IDs
+    // (teamCampaignColporteurId/teamCampaignId) que o APMS já resolveu por
+    // nós na URL atual. Por isso não precisamos entender como o botão
+    // "Gerar Excel" do próprio APMS funciona por dentro: reconstruímos a URL
+    // a partir de location.href (ver urlComoExcel) e buscamos com fetch().
+    // Ler células estruturadas é bem mais robusto que extrair texto de PDF
+    // por posição — sem quebra de linha, sem ambiguidade de coluna.
+    //
+    // Estrutura confirmada analisando Razões Analíticos reais de 3
+    // colportores (Contexto/Arquivo razao/ e Contexto/ColporteurClosureReport.xlsx
+    // — não versionados, contêm dados financeiros reais). O relatório
+    // ("Acerto do Colportor - Analítico") organiza os lançamentos em duas
+    // formas de linha bem distintas:
+    //
+    //   1) LANÇAMENTOS DE DÉBITO/CRÉDITO (JUROS, ADIANTAMENTO, DESPESAS,
+    //      PAGAMENTOS, TRANSFERÊNCIA ENTRE CONTAS, DÉBITO VIA SELS,
+    //      RECEBIMENTO, CRÉDITO VIA SELS): uma linha = data + descrição +
+    //      1 valor só. O "tipo" vem do cabeçalho de seção acima da linha,
+    //      não de uma célula na própria linha.
+    //   2) MOVIMENTAÇÃO PRODUTOS/ASSINATURAS: uma linha = categoria (ANTES
+    //      da data, ex. "Saída de Material Colportor") + data + observação +
+    //      4 valores em sequência fixa (Valor Total, Dízimo, Saldo a Pagar,
+    //      Valor Bonificado) — o impacto real é o PENÚLTIMO (Saldo a Pagar),
+    //      não o último. Sem essa seção, o Total da Compra e o Total Dízimo
+    //      nunca entram na movimentação calculada.
+    //
+    // Em ambas, o valor já vem com o sinal certo (negativo em débito,
+    // positivo em crédito) — não precisamos adivinhar sinal por categoria.
+    // A coluna exata onde cada campo cai MUDA de relatório pra relatório
+    // (depende de quanto texto empurra as colunas mescladas) — por isso o
+    // parser não fixa letra de coluna nenhuma; ele acha a célula de Data
+    // (tipo nativo Date, graças a cellDates:true) e conta quantos números
+    // válidos existem depois dela pra decidir qual é o valor.
+    //
+    // "DETALHES DO RECEBIMENTO" (sempre a última seção) é só um
+    // detalhamento por forma de pagamento dos recebimentos JÁ contados em
+    // cima — contar nele de novo duplicaria.
+    //
+    // VALIDADO (via PDF + Node/pdfjs-dist, antes de migrar pra Excel): a
+    // movimentação calculada bateu exatamente (diferença R$ 0,00) com o
+    // "Total do Período" do APMS nos 6 Razões reais analisados, e o
+    // encadeamento mês a mês fechou perfeitamente contra o saldo atual real
+    // (7 meses, 146 lançamentos). A extração por Excel usa a mesma lógica de
+    // negócio (seções, sinal, 1-valor vs 4-valores) — o que muda é só a
+    // fonte dos dados (células em vez de texto de PDF), então essa
+    // validação continua valendo; o que ainda falta é o teste ao vivo
+    // específico da leitura de Excel dentro do navegador.
+    // ===============================================================
+
+    // Cabeçalhos de seção que definem o "tipo" dos lançamentos abaixo deles
+    // (só se aplica às linhas de 1 valor só — a seção 2 acima tem tipo
+    // próprio por linha).
+    const CABECALHOS_TIPO_RAZAO = [
+        'TRANSFERÊNCIA ENTRE CONTAS', 'DÉBITO VIA SELS', 'CRÉDITO VIA SELS',
+        'RECEBIMENTO', 'ADIANTAMENTO', 'DESPESAS', 'PAGAMENTOS', 'JUROS'
+    ];
+
+    // Monta a URL do Excel a partir da URL do Razão em PDF já aberto —
+    // mesmos parâmetros, só isExcel/isCsv mudam. Evita ter que descobrir
+    // como o botão "Gerar Excel" do APMS funciona por dentro.
+    function urlComoExcel(urlAtual) {
+        const u = new URL(urlAtual);
+        u.searchParams.set('isExcel', 'true');
+        u.searchParams.set('isCsv', 'false');
+        return u.toString();
+    }
+
+    // ---- utilidades de célula (SheetJS) ----
+    function celulaData(cell) {
+        return cell && cell.t === 'd' && cell.v instanceof Date ? cell.v : null;
+    }
+    function textoDaCelula(cell) {
+        if (!cell) return '';
+        return String(cell.w != null ? cell.w : cell.v);
+    }
+    function valorNumericoDaCelula(cell) {
+        if (!cell) return null;
+        const texto = textoDaCelula(cell).trim();
+        return new RegExp(`^${NUM}$`).test(texto) ? parseValorPtBr(texto) : null;
+    }
+
+    // ---- LedgerParser (via planilha) ----
+    // Lê os lançamentos de uma worksheet (SheetJS) do Razão Analítico.
+    function parseRazaoLancamentosExcel(ws) {
+        if (!ws || !ws['!ref']) return [];
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const lancamentos = [];
+        let tipoAtual = null;
+        let dentroDetalhes = false;
+
+        for (let r = range.s.r; r <= range.e.r; r++) {
+            const celulas = [];
+            for (let c = range.s.c; c <= range.e.c; c++) {
+                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                if (cell && cell.v !== undefined && cell.v !== '') celulas.push(cell);
+            }
+            if (!celulas.length) continue;
+
+            const textoLinha = celulas.map(textoDaCelula).join(' ').trim();
+
+            // "DETALHES DO RECEBIMENTO" é só um detalhamento por forma de
+            // pagamento dos recebimentos já contados em "RECEBIMENTO" —
+            // contar aqui de novo duplicaria. Vem sempre por último.
+            if (dentroDetalhes || /^DETALHES DO RECEBIMENTO/i.test(textoLinha)) {
+                dentroDetalhes = true;
+                continue;
+            }
+
+            const normal = normalizar(textoLinha);
+            const cabecalho = CABECALHOS_TIPO_RAZAO.find(c => normal.startsWith(normalizar(c)));
+            if (cabecalho) { tipoAtual = cabecalho; continue; }
+            if (/^Data\/Hora/i.test(textoLinha) || /^Total\b/i.test(textoLinha) || RUIDO.test(textoLinha)) continue;
+
+            const idxData = celulas.findIndex(celulaData);
+            if (idxData === -1) continue; // sem data = não é linha de lançamento
+
+            const dataObj = celulaData(celulas[idxData]);
+            const antes = celulas.slice(0, idxData);
+            const depois = celulas.slice(idxData + 1);
+
+            // maior sufixo contíguo de células numéricas em "depois"
+            let inicioNumericos = depois.length;
+            for (let i = depois.length - 1; i >= 0; i--) {
+                if (valorNumericoDaCelula(depois[i]) === null) break;
+                inicioNumericos = i;
+            }
+            const numericos = depois.slice(inicioNumericos);
+            if (!numericos.length) continue; // linha sem valor no fim = não é lançamento de verdade
+
+            // 1 número = Lançamentos de Débito/Crédito (JUROS, RECEBIMENTO...);
+            // >1 número = Movimentação de Produtos/Assinaturas (Valor Total,
+            // Dízimo, SALDO A PAGAR, Valor Bonificado) — o impacto real é o
+            // penúltimo (Saldo a Pagar), nunca o último (Valor Bonificado).
+            const celValor = numericos.length === 1 ? numericos[0] : numericos[numericos.length - 2];
+            const valor = valorNumericoDaCelula(celValor);
+
+            const tipoLinha = antes.length ? antes.map(textoDaCelula).join(' ').trim() : tipoAtual;
+            const descricao = depois.slice(0, inicioNumericos).map(textoDaCelula).join(' ').replace(/\s+/g, ' ').trim();
+
+            lancamentos.push({ data: dataObj, tipo: tipoLinha || '(sem seção identificada)', descricao, valor });
+        }
+        return lancamentos;
+    }
+
+    // Extrai do cabeçalho/resumo do Razão: nome do colportor ("Nome:"), o
+    // saldo atual real ("SALDO DA CONTA:" — a âncora do cálculo reverso) e a
+    // movimentação do período que o próprio APMS já calculou
+    // ("Total do Período:" — usado só pra validar, seção 16/17 da especificação).
+    // Rótulo e valor sempre ficam em células adjacentes na MESMA linha.
+    function extrairResumoRazaoExcel(ws) {
+        if (!ws || !ws['!ref']) return { saldoAtual: null, totalPeriodo: null, nome: null };
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        let saldoAtual = null, totalPeriodo = null, nome = null;
+
+        for (let r = range.s.r; r <= range.e.r; r++) {
+            const celulas = [];
+            for (let c = range.s.c; c <= range.e.c; c++) {
+                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                if (cell && cell.v !== undefined && cell.v !== '') celulas.push(cell);
+            }
+            for (let i = 0; i < celulas.length; i++) {
+                const norm = normalizar(textoDaCelula(celulas[i]));
+                if (norm.startsWith('SALDO DA CONTA') && celulas[i + 1]) {
+                    const v = valorNumericoDaCelula(celulas[i + 1]);
+                    if (v !== null) saldoAtual = v;
+                }
+                if (norm.startsWith('TOTAL DO PERIODO') && celulas[i + 1]) {
+                    const v = valorNumericoDaCelula(celulas[i + 1]);
+                    if (v !== null) totalPeriodo = v;
+                }
+                if (norm.startsWith('NOME:') && celulas[i + 1] && !nome) {
+                    nome = textoDaCelula(celulas[i + 1]).trim();
+                }
+            }
+        }
+        return { saldoAtual, totalPeriodo, nome };
+    }
+
+    // ---- TransactionNormalizer ----
+    // O valor já vem com o sinal certo (negativo em débito, positivo em
+    // crédito) — não é preciso inferir sinal por categoria. cellDates:true
+    // devolve Date "UTC" (SSF interpreta o serial do Excel como UTC) — por
+    // isso usamos os getters UTC, não os locais, pra não deslocar hora
+    // conforme o fuso do navegador de quem roda a extensão.
+    function normalizarLancamentoRazao(bruto) {
+        const d = bruto.data;
+        const pad = (n) => String(n).padStart(2, '0');
+        return {
+            date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
+            time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
+            type: bruto.tipo,
+            description: bruto.descricao,
+            value: bruto.valor,
+            impact: bruto.valor
+        };
+    }
+
+    // ---- BalanceCalculator (âncora reversa — seção 13.1) ----
+    // Percorre as transações da mais recente para a mais antiga, subtraindo
+    // o impacto de cada uma a partir do saldo atual real do APMS. Ancora
+    // cada saldo intermediário num valor confiável, em vez de só validar
+    // no final.
+    function calcularSaldosReversos(transacoesOrdenadas, saldoAtual) {
+        const comSaldo = new Array(transacoesOrdenadas.length);
+        let saldo = saldoAtual;
+        for (let i = transacoesOrdenadas.length - 1; i >= 0; i--) {
+            const t = transacoesOrdenadas[i];
+            comSaldo[i] = Object.assign({}, t, { saldoApos: saldo });
+            saldo = round2(saldo - t.impact);
+        }
+        return comSaldo;
+    }
+
+    // ---- HistoricalBalanceEngine ----
+    function ordenarCronologicoRazao(transacoes) {
+        return transacoes.slice().sort((a, b) => {
+            const ta = a.date + ' ' + a.time, tb = b.date + ' ' + b.time;
+            return ta < tb ? -1 : (ta > tb ? 1 : 0);
+        });
+    }
+
+    function reconstruirPeriodoRazao(transacoesComSaldo, inicioISO, fimISO) {
+        const doPeriodo = transacoesComSaldo.filter(t => t.date >= inicioISO && t.date <= fimISO);
+        const movimentacao = round2(doPeriodo.reduce((s, t) => s + t.impact, 0));
+        const saldoFinal = doPeriodo.length ? doPeriodo[doPeriodo.length - 1].saldoApos : null;
+        const saldoInicial = saldoFinal !== null ? round2(saldoFinal - movimentacao) : null;
+        return { inicioISO, fimISO, transacoes: doPeriodo, movimentacao, saldoInicial, saldoFinal };
+    }
+
+    // Divide um intervalo em blocos de um mês (calendário), sem depender de
+    // biblioteca de datas — só usado no modo "mês a mês".
+    function mesesEntreRazao(inicioISO, fimISO) {
+        const meses = [];
+        let [ano, mes] = inicioISO.split('-').map(Number);
+        const [anoFim, mesFim] = fimISO.split('-').map(Number);
+        while (ano < anoFim || (ano === anoFim && mes <= mesFim)) {
+            const ultimoDia = new Date(ano, mes, 0).getDate();
+            meses.push({
+                inicioISO: `${ano}-${String(mes).padStart(2, '0')}-01`,
+                fimISO: `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
+            });
+            mes++; if (mes > 12) { mes = 1; ano++; }
+        }
+        return meses;
+    }
+
+    // Confere a movimentação calculada contra o Total do Período que o
+    // próprio APMS mostra (seção 16/17) — a trava de validação real, já que
+    // com âncora reversa o saldo final nasce igual ao do APMS por construção.
+    function validarMovimentacaoRazao(calculada, totalAPMS) {
+        if (totalAPMS === null || totalAPMS === undefined) return { validado: null, diferenca: null };
+        const diferenca = round2(calculada - totalAPMS);
+        return { validado: Math.abs(diferenca) < 0.01, diferenca };
+    }
+
+    // Orquestra tudo: recebe os lançamentos já normalizados (de uma ou mais
+    // capturas, seção 6.1), o saldo atual e a config do período pedido.
+    function motorReconstrucaoHistorica(transacoesNormalizadas, saldoAtual, config) {
+        const ordenadas = ordenarCronologicoRazao(transacoesNormalizadas);
+        const comSaldo = calcularSaldosReversos(ordenadas, saldoAtual);
+
+        // A validação compara o CAPTURADO INTEIRO (não o período pedido)
+        // contra o Total do Período que o APMS calculou pra ele. O Total do
+        // Período do APMS corresponde ao range que foi capturado (ex.: o
+        // histórico completo de março a setembro), não ao período mais
+        // estreito que o usuário pediu pra reconstruir (ex.: só julho-
+        // -agosto, um recorte desse mesmo histórico) — comparar a
+        // movimentação do recorte contra o total do range inteiro captura
+        // dava sempre diferença, mesmo com os dados certos. Se o capturado
+        // inteiro bate com o APMS, qualquer recorte de período derivado dele
+        // (seção seguinte) é uma fatia determinística de um dado já
+        // validado, e herda essa confiança.
+        const movimentacaoCapturada = round2(ordenadas.reduce((s, t) => s + t.impact, 0));
+        const validacao = validarMovimentacaoRazao(movimentacaoCapturada, config.totalPeriodoAPMS);
+
+        const periodoInteiro = reconstruirPeriodoRazao(comSaldo, config.inicioISO, config.fimISO);
+
+        if (config.modo !== 'monthly') {
+            return { modo: 'single', periodos: [periodoInteiro], validacao, validacaoInterna: null };
+        }
+
+        const blocos = mesesEntreRazao(config.inicioISO, config.fimISO)
+            .map(b => reconstruirPeriodoRazao(comSaldo, b.inicioISO, b.fimISO));
+        const somaMeses = round2(blocos.reduce((s, b) => s + b.movimentacao, 0));
+        const validacaoInterna = Math.abs(round2(somaMeses - periodoInteiro.movimentacao)) < 0.01;
+        return { modo: 'monthly', periodos: blocos, validacao, validacaoInterna };
+    }
 
     // ===============================================================
     // MODO ROBO — leitura dos parametros e sinalizacao de estado
@@ -432,23 +737,53 @@
           padding:6px 8px; font-size:11px; margin-bottom:8px; border-radius:3px; }
         #sels-painel .avancado { display:none; border-top:1px solid #eee; margin-top:8px; padding-top:8px; }
         #sels-painel.minimizado .corpo { display:none; }
+        #sels-painel .abas { display:flex; gap:4px; margin-bottom:10px; }
+        #sels-painel .aba { flex:1; padding:6px 4px; border:1px solid #ccd6e0; border-radius:5px;
+          background:#f4f6f9; color:#1a365d; font-size:11px; font-weight:bold; cursor:pointer; width:auto; }
+        #sels-painel .aba.ativa { background:#1a365d; color:#fff; border-color:#1a365d; }
+        #sels-painel .campo { font-size:11.5px; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+        #sels-painel .campo label { flex:0 0 34px; }
+        #sels-painel .campo input[type=month], #sels-painel .campo input[type=text] {
+          flex:1; padding:4px 6px; border:1px solid #ccd6e0; border-radius:4px; font-size:11.5px; }
+        #sels-painel label.check { display:flex; align-items:center; gap:6px; cursor:pointer; }
+        #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.1</b>
+        <b>🚀 SELS ASSISTANT 6.4</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
       </div>
       <div class="corpo">
+        <div class="abas">
+          <button class="aba ativa" id="aba-demonstrativo">📊 Demonstrativo</button>
+          <button class="aba" id="aba-razao">📜 Razão Histórico</button>
+        </div>
         <div id="sels-detectado" class="aviso">Abra um dos 3 relatórios do APMS.</div>
         <button id="sels-capturar" disabled>Capturar relatório</button>
-        <div class="check" id="ck-saldo">○ Saldo dos Colportores</div>
-        <div class="check" id="ck-consignado">○ Vendas Faturadas (Consignado)</div>
-        <div class="check" id="ck-ngs">○ Nota de Garantia (NGs)</div>
-        <button id="sels-analisar" class="verde" style="margin-top:10px" disabled>📊 Analisar e conferir</button>
+
+        <div id="secao-demonstrativo">
+          <div class="check" id="ck-saldo">○ Saldo dos Colportores</div>
+          <div class="check" id="ck-consignado">○ Vendas Faturadas (Consignado)</div>
+          <div class="check" id="ck-ngs">○ Nota de Garantia (NGs)</div>
+          <button id="sels-analisar" class="verde" style="margin-top:10px" disabled>📊 Analisar e conferir</button>
+        </div>
+
+        <div id="secao-razao" style="display:none">
+          <div class="campo"><label>De:</label><input type="month" id="razao-de"></div>
+          <div class="campo"><label>Até:</label><input type="month" id="razao-ate"></div>
+          <label class="check" style="margin-bottom:8px">
+            <input type="checkbox" id="razao-mensal"> Gerar um relatório separado para cada mês
+          </label>
+          <div class="campo"><label>Nome:</label><input type="text" id="razao-nome" placeholder="detectado ao capturar"></div>
+          <div class="check" id="razao-status">Nenhum lançamento capturado ainda.</div>
+          <button id="razao-gerar" class="verde" style="margin-top:6px" disabled>📜 Gerar Reconstrução</button>
+        </div>
+
         <div class="avancado" id="sels-avancado">
           <button id="sels-debug" class="cinza">🔍 Ver linhas cruas no console</button>
-          <button id="sels-limpar" class="vermelho">Limpar dados capturados</button>
+          <button id="sels-limpar" class="vermelho">Limpar dados capturados (Demonstrativo)</button>
+          <button id="razao-limpar" class="vermelho">Limpar lançamentos capturados (Razão)</button>
         </div>
       </div>`;
     document.body.appendChild(painel);
@@ -458,6 +793,24 @@
         const a = document.getElementById('sels-avancado');
         a.style.display = a.style.display === 'block' ? 'none' : 'block';
     };
+
+    // ---- Seleção de workflow (Demonstrativo x Razão Histórico) ----
+    // Ephemeral (não persiste entre recarregamentos) — o robô ainda só
+    // aciona o Demonstrativo (ver seção 22/23 da especificação: integração
+    // do robô com a Reconstrução Histórica é trabalho futuro).
+    let workflow = 'demonstrativo';
+
+    function selecionarWorkflow(novo) {
+        workflow = novo;
+        document.getElementById('aba-demonstrativo').classList.toggle('ativa', novo === 'demonstrativo');
+        document.getElementById('aba-razao').classList.toggle('ativa', novo === 'razao');
+        document.getElementById('secao-demonstrativo').style.display = novo === 'demonstrativo' ? '' : 'none';
+        document.getElementById('secao-razao').style.display = novo === 'razao' ? '' : 'none';
+        tipoDetectado = null;
+        detectarPaginaAtual();
+    }
+    document.getElementById('aba-demonstrativo').onclick = () => selecionarWorkflow('demonstrativo');
+    document.getElementById('aba-razao').onclick = () => selecionarWorkflow('razao');
 
     function lidos() {
         return {
@@ -481,16 +834,27 @@
 
     let tipoDetectado = null;
     // Faz UMA tentativa de identificar o relatório aberto na aba atual.
-    // Retorna o tipo ('saldo'/'consignado'/'ngs') ou null.
+    // Retorna o tipo ('saldo'/'consignado'/'ngs'/'razao') ou null.
     async function tentarDetectarUmaVez() {
         try {
             const r = await fetch(location.href, { credentials: 'include', method: 'GET' });
             const ct = (r.headers.get('content-type') || '');
             if (!ct.includes('pdf')) return null;
+
             const buffer = await r.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
             const c = await (await pdf.getPage(1)).getTextContent();
             const topo = c.items.map(i => i.str).join(' ').toUpperCase();
+            const ehRazao = topo.includes('ACERTO DO COLPORTOR');
+
+            // Workflow "razao": o cabeçalho real é "Acerto do Colportor -
+            // Analítico" (confirmado em Razões reais de 3 colportores). Se por
+            // algum motivo o texto não bater mas o usuário já escolheu esse
+            // workflow explicitamente, ainda tratamos como Razão — evita travar
+            // a captura por causa só do texto do cabeçalho.
+            if (workflow === 'razao') return 'razao';
+            if (ehRazao) return 'razao';
+
             return topo.includes('SALDO DOS COLPORTORES') ? 'saldo'
                  : topo.includes('VENDAS FATURADAS') ? 'consignado'
                  : topo.includes('NOTA DE GARANTIA') ? 'ngs' : null;
@@ -527,7 +891,10 @@
         }
 
         // Esgotou as tentativas
-        aviso.innerHTML = 'Não encontrei um relatório nesta aba. ' +
+        const dica = workflow === 'razao'
+            ? 'Não encontrei um PDF nesta aba. Abra o Razão Analítico no APMS. '
+            : 'Não encontrei um relatório nesta aba. ';
+        aviso.innerHTML = dica +
             '<a href="#" id="sels-retry" style="color:#2b6cb0">Tentar de novo</a>';
         btn.disabled = true;
         btn.textContent = 'Capturar relatório';
@@ -555,11 +922,80 @@
         return { tipo, resumo };
     }
 
+    // ---- Captura do Razão (workflow "razao") — acumula em blocos, seção 6.1 ----
+    function lidosRazao() {
+        return {
+            transacoes: JSON.parse(GM_getValue('razao_lancamentos', '[]')),
+            saldoAtual: GM_getValue('razao_saldo_atual', null),
+            totalPeriodoAPMS: GM_getValue('razao_total_periodo_apms', null),
+            blocos: GM_getValue('razao_blocos', 0)
+        };
+    }
+
+    function atualizarStatusRazao() {
+        const R = lidosRazao();
+        const el = document.getElementById('razao-status');
+        if (!R.transacoes.length) {
+            el.className = 'check pend';
+            el.textContent = 'Nenhum lançamento capturado ainda.';
+        } else {
+            el.className = 'check ok';
+            el.textContent = `✓ ${R.transacoes.length} lançamento(s) em ${R.blocos} captura(s)` +
+                (R.saldoAtual !== null ? ` · saldo atual: R$ ${fmtBr(R.saldoAtual)}` : ' · ⚠ saldo atual não detectado');
+        }
+        document.getElementById('razao-gerar').disabled = !(R.transacoes.length && R.saldoAtual !== null);
+    }
+
+    async function capturarBlocoRazao() {
+        // Não lemos o PDF aberto — buscamos a MESMA URL em Excel (troca só
+        // isExcel/isCsv, reaproveitando os IDs que o APMS já resolveu pra
+        // esta página) e lemos as células estruturadas. Ver comentário no
+        // topo do motor pra entender por quê.
+        const urlExcel = urlComoExcel(location.href);
+        const resposta = await fetch(urlExcel, { credentials: 'include' });
+        if (!resposta.ok) {
+            throw new Error(`Falha ao baixar o Excel (status ${resposta.status}). A sessão pode ter expirado — atualize a página (F5) e tente de novo.`);
+        }
+        const buffer = await resposta.arrayBuffer();
+        const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+
+        const brutos = parseRazaoLancamentosExcel(ws);
+        if (!brutos.length) {
+            throw new Error('Não encontrei lançamentos reconhecíveis no Excel. Confirme que a aba atual é o Razão Analítico (Acerto do Colportor). Se for e mesmo assim não achou nada, algo no layout mudou — veja "🔍 Ver linhas cruas no console" e ajuste parseRazaoLancamentosExcel.');
+        }
+        const resumo = extrairResumoRazaoExcel(ws);
+        const normalizados = brutos.map(normalizarLancamentoRazao);
+
+        const acumulado = JSON.parse(GM_getValue('razao_lancamentos', '[]')).concat(normalizados);
+        GM_setValue('razao_lancamentos', JSON.stringify(acumulado));
+        GM_setValue('razao_blocos', GM_getValue('razao_blocos', 0) + 1);
+        if (resumo.saldoAtual !== null) GM_setValue('razao_saldo_atual', resumo.saldoAtual);
+        if (resumo.totalPeriodo !== null) GM_setValue('razao_total_periodo_apms', resumo.totalPeriodo);
+        if (resumo.nome) {
+            const campoNome = document.getElementById('razao-nome');
+            if (!campoNome.value) campoNome.value = resumo.nome;
+        }
+
+        return { linhasCapturadasNesteBloco: normalizados.length, totalAcumulado: acumulado.length, resumo };
+    }
+
     document.getElementById('sels-capturar').onclick = async () => {
         const btn = document.getElementById('sels-capturar');
         const txt = btn.textContent;
         btn.disabled = true; btn.textContent = '⏳ Lendo PDF...';
         try {
+            if (workflow === 'razao') {
+                const r = await capturarBlocoRazao();
+                atualizarStatusRazao();
+                alert(`✅ Bloco do Razão capturado!\n\n${r.linhasCapturadasNesteBloco} lançamento(s) nesta captura ` +
+                    `(${r.totalAcumulado} no total acumulado).` +
+                    (r.resumo.saldoAtual !== null ? `\nSaldo atual detectado: R$ ${fmtBr(r.resumo.saldoAtual)}`
+                        : '\n⚠ Não encontrei o "SALDO DA CONTA" nesta página — a reconstrução não pode ser gerada sem isso.') +
+                    `\n\nSe o período pedido passar de 12 meses, abra o próximo bloco do Razão e clique Capturar de novo antes de gerar.`);
+                return;
+            }
+
             const linhas = await extrairLinhasDoPDF();
             const tipo = detectarRelatorio(linhas);
             if (!tipo) throw new Error('Não reconheci este relatório. Abra Saldo dos Colportores, Vendas Faturadas por Colportor ou Nota de Garantia.');
@@ -589,7 +1025,8 @@
 
     document.getElementById('sels-debug').onclick = () => {
         const L = lidos();
-        console.log('=== LINHAS CRUAS CAPTURADAS ===', L);
+        console.log('=== LINHAS CRUAS CAPTURADAS (DEMONSTRATIVO) ===', L);
+        console.log('=== LANÇAMENTOS CAPTURADOS (RAZÃO) ===', lidosRazao());
         alert('Linhas impressas no Console (F12).');
     };
 
@@ -599,6 +1036,41 @@
         atualizarPainel();
         alert('Dados limpos.');
     };
+
+    document.getElementById('razao-limpar').onclick = () => {
+        if (!confirm('Apagar todos os lançamentos do Razão capturados até agora?')) return;
+        GM_deleteValue('razao_lancamentos'); GM_deleteValue('razao_saldo_atual');
+        GM_deleteValue('razao_total_periodo_apms'); GM_deleteValue('razao_blocos');
+        atualizarStatusRazao();
+        alert('Dados do Razão limpos.');
+    };
+
+    document.getElementById('razao-gerar').onclick = () => {
+        const de = document.getElementById('razao-de').value;   // "AAAA-MM"
+        const ate = document.getElementById('razao-ate').value; // "AAAA-MM"
+        if (!de || !ate) { alert('Preencha o período (De/Até).'); return; }
+        if (de > ate) { alert('O período "De" não pode ser depois do "Até".'); return; }
+
+        const inicioISO = de + '-01';
+        const [anoAte, mesAte] = ate.split('-').map(Number);
+        const ultimoDiaAte = new Date(anoAte, mesAte, 0).getDate();
+        const fimISO = `${ate}-${String(ultimoDiaAte).padStart(2, '0')}`;
+        const modo = document.getElementById('razao-mensal').checked ? 'monthly' : 'single';
+        const nome = document.getElementById('razao-nome').value.trim();
+
+        const R = lidosRazao();
+        if (!R.transacoes.length || R.saldoAtual === null) {
+            alert('Capture ao menos um bloco do Razão (com o saldo atual detectado) antes de gerar.');
+            return;
+        }
+
+        const resultado = motorReconstrucaoHistorica(R.transacoes, R.saldoAtual, {
+            inicioISO, fimISO, modo, totalPeriodoAPMS: R.totalPeriodoAPMS
+        });
+        gerarRazaoReconstituido(nome, resultado);
+    };
+
+    atualizarStatusRazao();
 
     // ===============================================================
     // TELA DE CONFERÊNCIA
@@ -819,13 +1291,14 @@
     </div>`;
     }
 
-    function gerarDemonstrativos(lista, autoBaixar) {
-        const nomeArq = lista.length === 1
-            ? 'demonstrativo-' + lista[0].nome.replace(/\s+/g, '_')
-            : 'demonstrativos-equipe';
-
+    // ===============================================================
+    // Página exportável em PDF/PNG (html2canvas + jsPDF) — cada "card" HTML
+    // vira uma página. Compartilhada pelo Demonstrativo e pela Reconstrução
+    // Histórica do Razão (mesma casca navy/gold, só o conteúdo dos cards muda).
+    // ===============================================================
+    function paginaExportavelPDF({ titulo, nomeArq, cardsHtml, quantosCards, autoBaixar, estiloExtra }) {
         const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<title>${lista.length === 1 ? 'Demonstrativo - ' + lista[0].nome : 'Demonstrativos da Equipe'}</title>
+<title>${titulo}</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"><\/script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"><\/script>
 <style>
@@ -871,14 +1344,15 @@
     border:none; border-radius:6px; cursor:pointer; background:var(--navy); color:#fff; font-weight:bold; }
   .barra button.sec { background:#fff; color:var(--navy); border:1px solid var(--navy); }
   @media print { body{background:#fff;padding:0;} .card{box-shadow:none;margin:0;} .barra{display:none;} }
+  ${estiloExtra || ''}
 </style></head>
 <body>
   <div class="barra" id="barra">
-    <button onclick="baixarPDF()">Baixar PDF${lista.length > 1 ? ' (todos)' : ''}</button>
+    <button onclick="baixarPDF()">Baixar PDF${quantosCards > 1 ? ' (todos)' : ''}</button>
     <button class="sec" onclick="baixarPNG()">Baixar imagem (PNG)</button>
-    ${lista.length > 1 ? `<span style="font-size:12px;color:#666;margin-left:8px">${lista.length} demonstrativos</span>` : ''}
+    ${quantosCards > 1 ? `<span style="font-size:12px;color:#666;margin-left:8px">${quantosCards} documentos</span>` : ''}
   </div>
-  ${lista.map(htmlDemonstrativo).join('\n')}
+  ${cardsHtml}
 <script>
   async function aguardarImagens() {
     const imgs = Array.from(document.images);
@@ -934,6 +1408,116 @@
         const aba = window.open('', '_blank');
         if (!aba) { alert('O navegador bloqueou a nova aba. Permita pop-ups para este site.'); return; }
         aba.document.open(); aba.document.write(html); aba.document.close();
+    }
+
+    function gerarDemonstrativos(lista, autoBaixar) {
+        const nomeArq = lista.length === 1
+            ? 'demonstrativo-' + lista[0].nome.replace(/\s+/g, '_')
+            : 'demonstrativos-equipe';
+        paginaExportavelPDF({
+            titulo: lista.length === 1 ? 'Demonstrativo - ' + lista[0].nome : 'Demonstrativos da Equipe',
+            nomeArq,
+            cardsHtml: lista.map(htmlDemonstrativo).join('\n'),
+            quantosCards: lista.length,
+            autoBaixar
+        });
+    }
+
+    // ===============================================================
+    // APMSRazaoTemplate — visual do Razão Reconstituído. Reaproveita a
+    // mesma casca navy/gold do Demonstrativo (ver nota na seção do motor:
+    // ainda não temos uma captura real do Razão do APMS pra espelhar o
+    // layout exato dele — seção 14 da especificação fica pendente até lá).
+    // ===============================================================
+    function linhasTransacoesRazao(transacoes) {
+        if (!transacoes.length) {
+            return '<tr><td colspan="5" style="color:#aaa;font-style:italic">Nenhuma movimentação neste período</td></tr>';
+        }
+        return transacoes.map(t => `<tr>
+          <td>${t.date.split('-').reverse().join('/')} ${t.time}</td>
+          <td>${t.type}</td>
+          <td>${t.description}</td>
+          <td class="n">${fmtBr(t.value)}</td>
+          <td class="n">${fmtBr(t.saldoApos)}</td>
+        </tr>`).join('');
+    }
+
+    function bannerValidacaoRazao(validacao, validacaoInterna) {
+        // Nota: "validacao" checa o CAPTURADO INTEIRO (todo o histórico
+        // lido do Razão) contra o Total do Período que o APMS calculou pra
+        // ele — não o período específico deste documento. Se o capturado
+        // bate, este recorte (uma fatia determinística do mesmo dado) herda
+        // essa confiança.
+        let html;
+        if (validacao.validado === null) {
+            html = `<div class="validacao pend">Sem "Total do Período" do APMS capturado — não foi possível validar automaticamente contra o APMS.</div>`;
+        } else if (validacao.validado) {
+            html = `<div class="validacao ok">✓ DADOS VALIDADOS — o histórico capturado bate com o Total do Período do APMS.</div>`;
+        } else {
+            html = `<div class="validacao erro">⚠ DADOS NÃO VALIDADOS — o histórico capturado tem diferença de R$ ${fmtBr(validacao.diferenca)} contra o Total do Período do APMS. Confira antes de usar este documento.</div>`;
+        }
+        if (validacaoInterna === false) {
+            html += `<div class="validacao erro">⚠ A soma dos meses não bate com o total do intervalo inteiro — revise a separação mensal.</div>`;
+        }
+        return html;
+    }
+
+    function htmlPeriodoRazao(nome, periodo, validacao, validacaoInterna) {
+        const de = periodo.inicioISO.split('-').reverse().join('/');
+        const ate = periodo.fimISO.split('-').reverse().join('/');
+        const dataGeracao = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        return `<div class="card">
+      <div class="cabecalho">
+        <img src="data:image/png;base64,${LOGO_SELS}" alt="SELS UCOB">
+        <h1>Razão Reconstituído — Saldo Histórico</h1>
+        <div class="sub">SELS UCOB · União Centro Oeste Brasileira</div>
+      </div>
+      <div class="corpo">
+        <div class="nome">${nome || '(nome não identificado na captura — confira antes de entregar)'}</div>
+        <div class="data">Período: ${de} a ${ate} · Gerado em ${dataGeracao}</div>
+
+        ${bannerValidacaoRazao(validacao, validacaoInterna)}
+
+        <div class="resumo-box">
+          <div class="resumo-tit">Resumo do Período</div>
+          <table class="resumo">
+            <tr><td>Saldo inicial do período</td><td>R$ ${periodo.saldoInicial === null ? '—' : fmtBr(periodo.saldoInicial)}</td></tr>
+            <tr><td>Movimentação do período</td><td>R$ ${fmtBr(periodo.movimentacao)}</td></tr>
+            <tr class="destaque"><td>Saldo final reconstituído</td><td>R$ ${periodo.saldoFinal === null ? '—' : fmtBr(periodo.saldoFinal)}</td></tr>
+          </table>
+        </div>
+
+        <h2>Movimentações do Período</h2>
+        <table class="det">
+          <tr><th>Data/Hora</th><th>Tipo</th><th>Descrição</th><th class="n">Valor</th><th class="n">Saldo após</th></tr>
+          ${linhasTransacoesRazao(periodo.transacoes)}
+        </table>
+
+        <p class="rodape">Documento reconstituído pelo SELS ASSISTANT a partir das movimentações do Razão do APMS — NÃO é o Razão oficial. Confira com o setor financeiro em caso de dúvida.</p>
+      </div>
+    </div>`;
+    }
+
+    function gerarRazaoReconstituido(nome, resultado, autoBaixar) {
+        const base = 'razao-reconstituido-' + (nome ? nome.replace(/\s+/g, '_') : 'colportor');
+        const nomeArq = resultado.modo === 'single' ? base : base + '-mensal';
+        const estiloExtra = `
+  .validacao { margin:10px 0; padding:8px 10px; border-radius:6px; font-size:11.5px; font-weight:bold; font-family:Arial, sans-serif; }
+  .validacao.ok { background:#eafaf1; color:#2f7d4f; border-left:3px solid #2f7d4f; }
+  .validacao.erro { background:#fdecea; color:#c0392b; border-left:3px solid #c0392b; }
+  .validacao.pend { background:#fdf6e3; color:#8a6d1a; border-left:3px solid #d9a441; }`;
+
+        paginaExportavelPDF({
+            titulo: resultado.periodos.length === 1
+                ? 'Razão Reconstituído - ' + (nome || '')
+                : 'Razão Reconstituído (mensal) - ' + (nome || ''),
+            nomeArq,
+            cardsHtml: resultado.periodos.map(p => htmlPeriodoRazao(nome, p, resultado.validacao, resultado.validacaoInterna)).join('\n'),
+            quantosCards: resultado.periodos.length,
+            autoBaixar,
+            estiloExtra
+        });
     }
 
     // ===============================================================
