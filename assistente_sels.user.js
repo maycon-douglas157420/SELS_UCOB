@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SELS ASSISTANT 6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.4
+// @version      6.5
 // @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa.
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
@@ -749,7 +749,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.4</b>
+        <b>🚀 SELS ASSISTANT 6.5</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
@@ -1387,7 +1387,8 @@
       const w = canvas.width * 0.264583 / 2, h = canvas.height * 0.264583 / 2;
       if (!pdf) pdf = new jsPDF({ orientation: h > w ? 'p' : 'l', unit: 'mm', format: [w + 20, h + 20] });
       else pdf.addPage([w + 20, h + 20], h > w ? 'p' : 'l');
-      pdf.addImage(img, 'PNG', 10, 10, w, h);
+      // 'FAST' = compressão sem perda da imagem (6.5): o mesmo PDF, ~48x menor (12 MB → ~260 KB)
+      pdf.addImage(img, 'PNG', 10, 10, w, h, undefined, 'FAST');
     }
     pdf.save('${nomeArq}.pdf');
   }
