@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SELS ASSISTANT 6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.5
+// @version      6.6
 // @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa.
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
@@ -749,7 +749,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.5</b>
+        <b>🚀 SELS ASSISTANT 6.6</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
@@ -757,7 +757,11 @@
       <div class="corpo">
         <div class="abas">
           <button class="aba ativa" id="aba-demonstrativo">📊 Demonstrativo</button>
-          <button class="aba" id="aba-razao">📜 Razão Histórico</button>
+          <!-- 6.6: Razão Histórico escondido. Teste de 2026-10-12: colportor com desconto
+               (Francisco, 4.566,92) sai "NÃO VALIDADO" e com todos os saldos passados errados
+               — o desconto não vira linha no Razão. Use o Extrato do Colportor (robo/extrato-colportor
+               ou bot do Telegram). O código fica aqui para quando isso for corrigido. -->
+          <button class="aba" id="aba-razao" style="display:none">📜 Razão Histórico</button>
         </div>
         <div id="sels-detectado" class="aviso">Abra um dos 3 relatórios do APMS.</div>
         <button id="sels-capturar" disabled>Capturar relatório</button>
