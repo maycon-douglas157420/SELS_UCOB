@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SELS ASSISTANT 6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.6
+// @version      6.7
 // @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa.
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
@@ -749,7 +749,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.6</b>
+        <b>🚀 SELS ASSISTANT 6.7</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
@@ -771,6 +771,7 @@
           <div class="check" id="ck-consignado">○ Vendas Faturadas (Consignado)</div>
           <div class="check" id="ck-ngs">○ Nota de Garantia (NGs)</div>
           <button id="sels-analisar" class="verde" style="margin-top:10px" disabled>📊 Analisar e conferir</button>
+          <button id="sels-limpar" class="vermelho">Limpar dados capturados (Demonstrativo)</button>
         </div>
 
         <div id="secao-razao" style="display:none">
@@ -786,8 +787,6 @@
 
         <div class="avancado" id="sels-avancado">
           <button id="sels-debug" class="cinza">🔍 Ver linhas cruas no console</button>
-          <button id="sels-limpar" class="vermelho">Limpar dados capturados (Demonstrativo)</button>
-          <button id="razao-limpar" class="vermelho">Limpar lançamentos capturados (Razão)</button>
         </div>
       </div>`;
     document.body.appendChild(painel);
@@ -1041,13 +1040,8 @@
         alert('Dados limpos.');
     };
 
-    document.getElementById('razao-limpar').onclick = () => {
-        if (!confirm('Apagar todos os lançamentos do Razão capturados até agora?')) return;
-        GM_deleteValue('razao_lancamentos'); GM_deleteValue('razao_saldo_atual');
-        GM_deleteValue('razao_total_periodo_apms'); GM_deleteValue('razao_blocos');
-        atualizarStatusRazao();
-        alert('Dados do Razão limpos.');
-    };
+    // 6.7: o botão "Limpar lançamentos capturados (Razão)" saiu junto com a aba do Razão Histórico
+    // (escondida na 6.6) — sem ele, este handler quebraria o script (getElementById → null).
 
     document.getElementById('razao-gerar').onclick = () => {
         const de = document.getElementById('razao-de').value;   // "AAAA-MM"
