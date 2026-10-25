@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SELS ASSISTANT 6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.7
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa.
+// @version      6.8
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes).
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
@@ -90,14 +90,17 @@
     const ISENTOS_AVULSOS = [
         "Bloco de Contrato de Compra",
         "CARTAZ PROATIVE",
+        "Cidade Nosso Amiguinho",
         "Colecao Comentario Biblico Andrews",
         "FOLDER PROATIVE",
         "Histórias do Nosso Amiguinho",
+        "Ioiô - Diversas Cores",
         "Jogo da Memória - Oque Vou Ser Quando Crescer",
         "Jogo da Memória Personalizado - JG007 - Branco 12 Pares",
         "LIVRO ILUSTRADO N.A. - O QUE VOU SER QUANDO CRESCER",
         "Livro Ilustrado Album N.A - O que Vou Ser Quando Crescer",
         "Livro Ilustrado Nosso Amiguinho + Coleção de Figurinhas",
+        "Revista Oferta Ilustrada Sucos e Shakes",
         "Tabuada Turma Nosso Amiguinho"
     ].map(normalizar);
 
@@ -749,7 +752,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.7</b>
+        <b>🚀 SELS ASSISTANT 6.8</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
