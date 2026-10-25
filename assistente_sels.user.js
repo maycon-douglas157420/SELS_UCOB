@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SELS ASSISTANT 6.4
 // @namespace    http://tampermonkey.net/
-// @version      6.8
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes).
+// @version      6.9
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS.
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
@@ -88,18 +88,27 @@
     // "contém" e não "igual" para que combos herdem a isenção do material base.
     const FAMILIA_ISENTA = "MINIATURA";
     const ISENTOS_AVULSOS = [
+        "Bloco Colportagem Teste Ansiedade",
         "Bloco de Contrato de Compra",
+        "BLOCO TERMO MÚTUO PROATIVE",
+        "Caixa Coleção Bíblia Ilustrada Para a Família",
         "CARTAZ PROATIVE",
         "Cidade Nosso Amiguinho",
         "Colecao Comentario Biblico Andrews",
+        "CONTROLE DE PRESENÇA PROATIVE",
+        "Figurinha N.A Campanha - 2023",
         "FOLDER PROATIVE",
         "Histórias do Nosso Amiguinho",
         "Ioiô - Diversas Cores",
         "Jogo da Memória - Oque Vou Ser Quando Crescer",
         "Jogo da Memória Personalizado - JG007 - Branco 12 Pares",
+        "Lâmina Prospecto Magabooks - Poder Medicinal dos Alimentos",
         "LIVRO ILUSTRADO N.A. - O QUE VOU SER QUANDO CRESCER",
         "Livro Ilustrado Album N.A - O que Vou Ser Quando Crescer",
         "Livro Ilustrado Nosso Amiguinho + Coleção de Figurinhas",
+        "Prospecto Magabooks - Base Padrão",
+        "PROSPECTO PROATIVE",
+        "Prospecto Programa Nacional de Saúde",
         "Revista Oferta Ilustrada Sucos e Shakes",
         "Tabuada Turma Nosso Amiguinho"
     ].map(normalizar);
@@ -752,7 +761,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.8</b>
+        <b>🚀 SELS ASSISTANT 6.9</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
