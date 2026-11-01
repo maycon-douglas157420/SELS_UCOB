@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         SELS ASSISTANT 6.4
+// @name         SELS ASSISTANT 7.0
 // @namespace    http://tampermonkey.net/
-// @version      6.9
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS.
+// @version      7.0
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS. 7.0 so muda o titulo (@name igual ao @version).
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
@@ -761,7 +761,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 6.9</b>
+        <b>🚀 SELS ASSISTANT 7.0</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
