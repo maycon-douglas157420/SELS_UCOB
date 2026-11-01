@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         SELS ASSISTANT 7.0
+// @name         SELS ASSISTANT 7.1
 // @namespace    http://tampermonkey.net/
-// @version      7.0
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS. 7.0 so muda o titulo (@name igual ao @version).
+// @version      7.1
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS. 7.0 so muda o titulo (@name igual ao @version). 7.1 captura com o PDF que a deteccao ja baixou (um download a menos por relatorio).
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
@@ -337,13 +337,24 @@
     // soltas. Agrupamos por Y (mesma linha visual) e ordenamos por X
     // (esquerda→direita) para reconstruir a linha como ela é vista.
     // ===============================================================
+    // PDF que a detecção já baixou (desde a 7.1). O APMS gera o relatório de
+    // novo a cada pedido (~8–15 s por PDF de equipe); sem isto, o clique em
+    // "Capturar" baixava tudo outra vez. Guardamos uma cópia porque o pdf.js
+    // pode transferir (esvaziar) o buffer que recebe.
+    let pdfDetectado = null; // { url, buffer }
+
     async function extrairLinhasDoPDF() {
-        const resposta = await fetch(location.href, { credentials: 'include' });
-        if (!resposta.ok) {
-            throw new Error(`Falha ao baixar o PDF (status ${resposta.status}). ` +
-                            `A sessão pode ter expirado — atualize a página (F5) e tente de novo.`);
+        let buffer;
+        if (pdfDetectado && pdfDetectado.url === location.href) {
+            buffer = pdfDetectado.buffer.slice(0);
+        } else {
+            const resposta = await fetch(location.href, { credentials: 'include' });
+            if (!resposta.ok) {
+                throw new Error(`Falha ao baixar o PDF (status ${resposta.status}). ` +
+                                `A sessão pode ter expirado — atualize a página (F5) e tente de novo.`);
+            }
+            buffer = await resposta.arrayBuffer();
         }
-        const buffer = await resposta.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
 
         const linhas = [];
@@ -761,7 +772,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 7.0</b>
+        <b>🚀 SELS ASSISTANT 7.1</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
@@ -852,11 +863,13 @@
     // Retorna o tipo ('saldo'/'consignado'/'ngs'/'razao') ou null.
     async function tentarDetectarUmaVez() {
         try {
-            const r = await fetch(location.href, { credentials: 'include', method: 'GET' });
+            const url = location.href;
+            const r = await fetch(url, { credentials: 'include', method: 'GET' });
             const ct = (r.headers.get('content-type') || '');
-            if (!ct.includes('pdf')) return null;
+            if (!r.ok || !ct.includes('pdf')) return null;
 
             const buffer = await r.arrayBuffer();
+            pdfDetectado = { url, buffer: buffer.slice(0) };
             const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
             const c = await (await pdf.getPage(1)).getTextContent();
             const topo = c.items.map(i => i.str).join(' ').toUpperCase();
