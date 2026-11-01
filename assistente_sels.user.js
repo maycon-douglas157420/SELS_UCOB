@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         SELS ASSISTANT 7.1
+// @name         SELS ASSISTANT 7.2
 // @namespace    http://tampermonkey.net/
-// @version      7.1
-// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS. 7.0 so muda o titulo (@name igual ao @version). 7.1 captura com o PDF que a deteccao ja baixou (um download a menos por relatorio).
+// @version      7.2
+// @description  Demonstrativo de Saldo em lote — le os 3 relatorios do APMS (Saldo, Vendas Faturadas, Nota de Garantia), cruza por colportor e gera o demonstrativo individual ou de toda a equipe. 6.2 adiciona MODO ROBO (captura e geracao automatica, sem clique) para automacao via Playwright. 6.3 adiciona a Reconstrucao Historica do Razao (segundo workflow no mesmo painel). 6.4 corrige a isencao de dizimo de 3 produtos que o APMS nao tributa. 6.8 isenta mais 3 (Ioio, Cidade Nosso Amiguinho, Revista Oferta Ilustrada Sucos e Shakes). 6.9 isenta os outros 9 produtos com dizimo 0% na Tabela Publicacoes 2026 do APMS. 7.0 so muda o titulo (@name igual ao @version). 7.1 captura com o PDF que a deteccao ja baixou (um download a menos por relatorio). 7.2 detecta o relatorio pela copia que o navegador ja baixou (botao de captura libera na hora).
 // @author       SELS UCOB
 // @match        https://apms.sdasystems.org/*
 // @grant        GM_setValue
@@ -772,7 +772,7 @@
         #sels-painel label.check input { width:auto; margin:0; }
       </style>
       <div class="topo">
-        <b>🚀 SELS ASSISTANT 7.1</b>
+        <b>🚀 SELS ASSISTANT 7.2</b>
         <span id="sels-refresh" title="Procurar relatório de novo">⟳</span>
         <span id="sels-gear" title="Ferramentas avançadas">⚙</span>
         <span id="sels-min" title="Minimizar">—</span>
@@ -861,10 +861,15 @@
     let tipoDetectado = null;
     // Faz UMA tentativa de identificar o relatório aberto na aba atual.
     // Retorna o tipo ('saldo'/'consignado'/'ngs'/'razao') ou null.
-    async function tentarDetectarUmaVez() {
+    // usarCopia (desde a 7.2): pede a cópia que o navegador guardou ao abrir a
+    // aba (cache: 'force-cache') — ~0,3 s em vez de o APMS gerar o relatório
+    // de novo (~17 s), e é o mesmo PDF que está na tela. Sem cópia, vai ao
+    // APMS como antes. As novas tentativas vão sempre ao APMS, para não
+    // insistir numa cópia ruim.
+    async function tentarDetectarUmaVez(usarCopia) {
         try {
             const url = location.href;
-            const r = await fetch(url, { credentials: 'include', method: 'GET' });
+            const r = await fetch(url, { credentials: 'include', method: 'GET', cache: usarCopia ? 'force-cache' : 'default' });
             const ct = (r.headers.get('content-type') || '');
             if (!r.ok || !ct.includes('pdf')) return null;
 
@@ -906,7 +911,7 @@
             if (esperas[i]) await new Promise(r => setTimeout(r, esperas[i]));
             if (!silencioso && i > 0) aviso.textContent = `Procurando relatório… (tentativa ${i + 1})`;
 
-            tipoDetectado = await tentarDetectarUmaVez();
+            tipoDetectado = await tentarDetectarUmaVez(i === 0);
             if (tipoDetectado) {
                 aviso.innerHTML = `Detectado: <b>${ROTULOS[tipoDetectado]}</b>`;
                 btn.disabled = false;
